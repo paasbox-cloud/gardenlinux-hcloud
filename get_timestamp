@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Reproducible-build timestamp. Upstream computes this as `garden-version --epoch`:
+# epoch(2020-03-31T00:00:00Z) + <major> days, where major = 2150 (see get_version).
+#   1585612800 + 2150 * 86400 = 1771372800  (= 2026-02-19T00:00:00Z)
+# Keep in sync with get_version when bumping the GL line/major.
+set -eufo pipefail
+
+echo 1771372800

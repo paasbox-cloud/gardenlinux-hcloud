@@ -1,0 +1,13 @@
+#!/bin/sh
+# ExecStart of k3s-persist-root-keys.service: add root's delivered keys to the persistent file.
+set -eu
+src=/root/.ssh/authorized_keys
+dst=/etc/ssh/authorized_keys.d/root
+install -d -m 0755 /etc/ssh/authorized_keys.d
+touch "$dst"
+chmod 0600 "$dst"
+# Only real key lines: cc_ssh prefixes a login-refusing command= when root login is disabled, and a
+# copy must not turn such a line into access.
+grep -E '^(ssh-|ecdsa-|sk-)' "$src" | while IFS= read -r line; do
+	grep -qxF "$line" "$dst" || printf '%s\n' "$line" >> "$dst"
+done

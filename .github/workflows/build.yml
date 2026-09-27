@@ -1,0 +1,251 @@
+# Modeled on builder_example's CI (checkout → ./build <flavor>): all Hetzner flavors, dev
+# signing certs for the USI variants. On TAG builds the artifacts are published as GitHub
+# RELEASE assets (public, permanent, plain-URL downloadable — hcloud-upload-image consumes
+# them via --image-url); run artifacts (login-only, 90-day expiry) are not a distribution
+# channel. arm64 flavors build NATIVELY on GitHub's free-for-public-repos arm64 runners.
+name: build
+
+on:
+  workflow_dispatch:
+    inputs:
+      flavor:
+        description: "Build ONE flavor (empty = all). Useful on a private build repo, where the
+          arm64 runners are billed and only one flavor is usually wanted."
+        required: false
+        default: ""
+  push:
+    tags:
+      # v* AND NOT "*", because the repository ruleset that restricts who may create a tag matches
+      # refs/tags/v*. With "*" the two did not line up, and the gap was the worst possible one: a
+      # tag like 2150.6.0-4 — the scheme this workflow's own release notes advertised — needed no
+      # bypass actor, ran the full build, and uploaded with `gh release upload --clobber`, which
+      # REPLACES assets on an already-published release while keeping its tag, date and notes.
+      # Those assets install machines: the .tar.xz is handed to Hetzner installimage as the root
+      # filesystem of a dedicated server, and the .raw.xz is written to a disk by
+      # hcloud-upload-image. Neither consumer verifies anything today.
+      #
+      # Found by an adversarial review of the export before the first public tag, 2026-09-13.
+      # Publishing now goes through hack/oss-publish.py, which tags with the stack tag
+      # (v<gardener>-pb.<N>), so v* is also the scheme actually in use.
+      - "v*"
+
+permissions:
+  contents: write # gh release create/upload
+
+jobs:
+  # The matrix is COMPUTED rather than written inline, so that `workflow_dispatch` can build a
+  # single flavor. A job-level `if` cannot do this: the `matrix` context is not available there
+  # (github, inputs, needs and vars are — actionlint says so, and it is right). A flavor filtered
+  # out here is never queued, so it costs no runner minutes at all, which is the point on a
+  # PRIVATE build repository: the arm64 flavors need `ubuntu-24.04-arm`, free only for public
+  # repositories. A tag build passes no input and therefore builds everything, as before.
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.pick.outputs.matrix }}
+    steps:
+      - id: pick
+        env:
+          ONLY: ${{ inputs.flavor }}
+        run: |
+          set -Eeuo pipefail
+          # hcloud classic: BIOS+UEFI dual-boot raw — boots every family incl. BIOS-only CX; no in-place.
+          # hcloud USI:     EFI-only (CPX/CCX/CAX), A/B in-place-capable via gardenlinux-update.
+          # robot:          full kernel (igb/AHCI/mdadm), BIOS+UEFI dual, NO cloud-init — Robot has no
+          #                 metadata service, so bootstrap is the onboarding agent's job.
+          # *-k3s_*:        the k3s node element INSTEAD of gardener (features/k3s/README.md): k3s in the
+          #                 image, local volumes on LVM vg0. USI only on hcloud — a classic k3s node could
+          #                 only be upgraded by a rebuild, which wipes vg0. The build also downloads the
+          #                 pinned k3s release from github.com (checksum-verified in exec.config).
+          all='[
+            {"flavor":"hcloud-gardener_prod-amd64","runner":"ubuntu-24.04"},
+            {"flavor":"hcloud-gardener_prod_usi-amd64","runner":"ubuntu-24.04"},
+            {"flavor":"hcloud-gardener_prod-arm64","runner":"ubuntu-24.04-arm"},
+            {"flavor":"hcloud-gardener_prod_usi-arm64","runner":"ubuntu-24.04-arm"},
+            {"flavor":"baremetal-robot-gardener_prod-amd64","runner":"ubuntu-24.04"},
+            {"flavor":"hcloud-k3s_prod_usi-amd64","runner":"ubuntu-24.04"},
+            {"flavor":"hcloud-k3s_prod_usi-arm64","runner":"ubuntu-24.04-arm"},
+            {"flavor":"baremetal-robot-k3s_prod-amd64","runner":"ubuntu-24.04"}
+          ]'
+          if [ -n "${ONLY:-}" ]; then
+            sel="$(jq -c --arg f "$ONLY" '[.[] | select(.flavor == $f)]' <<<"$all")"
+            # An unknown flavor would otherwise produce an EMPTY matrix, which GitHub reports as a
+            # successful workflow that built nothing — the failure mode this repository keeps
+            # finding elsewhere. Fail instead, and say which names exist.
+            [ "$(jq length <<<"$sel")" -eq 1 ] || {
+              echo "no such flavor: $ONLY" >&2
+              jq -r '.[].flavor' <<<"$all" >&2
+              exit 1
+            }
+          else
+            sel="$all"
+          fi
+          echo "matrix=$(jq -c '{include: .}' <<<"$sel")" >> "$GITHUB_OUTPUT"
+          jq -r '.[].flavor' <<<"$sel" | sed 's/^/building: /'
+
+  build:
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # features/_usi/exec.post hard-requires cert/oci-sign.crt + cert/secureboot.{pk,null.pk,
+      # kek,db}.auth (bakes the OCI-signature verification key + secureboot enrollment blobs
+      # into the image). Self-signed dev chain for now; a real release pipeline signs USI
+      # artifacts with THIS key (gardenlinux-update verifies) — key custody TBD
+      # (consider --kms like upstream).
+      - name: Generate signing certs (dev, self-signed)
+        run: ./cert/build oci-sign.crt secureboot.pk.auth secureboot.null.pk.auth secureboot.kek.auth secureboot.db.auth
+
+      - name: Build ${{ matrix.flavor }}
+        run: ./build ${{ matrix.flavor }}
+
+      # hcloud-upload-image consumes .raw.xz directly (--compression xz); keeps assets <~1GB.
+      - name: Compress raw images
+        run: xz -T0 -9 .build/*.raw
+
+      # THE ROOT FILESYSTEM IS A FIRST-CLASS ARTIFACT AND IT IS HOW A ROBOT BOX GETS INSTALLED.
+      # gardenlinux/builder's make_list_build_artifacts lists <cname>-<commit>.tar unconditionally
+      # (the .raw only when the flavor has a platform), and the rule that produces it is labelled
+      # "configuring rootfs" — the disk image is derived FROM this tarball. Hetzner's installimage
+      # takes exactly such a tarball via IMAGE, which is what lets a dedicated box keep the
+      # SWRAID 1 + PART lvm vg0 all + sized-root-LV layout that LocalPV-LVM needs. A dd of the
+      # .raw would bring the image's own partition table and leave no volume group at all.
+      #
+      # The builder's own name CANNOT be used: baremetal-robot-gardener_prod-amd64-2150.6.0-<c>.tar
+      # gives installimage IMG_VERSION="robot", and it does bash arithmetic on that field.
+      # test/installimage-name.sh documents the whole contract and enforces it — it lives in a
+      # file rather than inline here so the monorepo's own CI can run it too (this workflow only
+      # runs on the GitHub mirror).
+      #
+      # No repacking for /dev, /proc, /sys: extract_image() excludes them itself.
+      # Both robot flavors publish one; the k3s one is told apart by a trailing `-k3s`, which keeps the
+      # `-amd64-` field installimage parses the architecture from (test/installimage-name.sh).
+      - name: Publish the rootfs for installimage (robot flavors only)
+        if: startsWith(matrix.flavor, 'baremetal-robot-')
+        env:
+          FLAVOR: ${{ matrix.flavor }}
+        run: |
+          set -Eeuo pipefail
+          version="$(./get_version)"
+          # ASK THE BUILDER FOR THE NAME, do not reconstruct it from the flavor. This line used to
+          # be `ls .build/baremetal-robot-*.tar`, and it failed on the first run this step ever had
+          # (2026-09-13, private build): the builder puts the feature names in CANONICAL order, so
+          # the flavor `baremetal-robot-gardener_prod-amd64` produces
+          # `baremetal-gardener-robot_prod-amd64-2150.6.0-<commit>.tar`. `--resolve-cname` prints
+          # exactly what the build wrote, so the two can never drift again.
+          #
+          # Plain command substitution, NOT `3>&1 1>/dev/null`. ./build opens with
+          #     exec 3>&1 ; exec 1>&2
+          # so it hands its RESULT out on fd 3 and sends all chatter to stderr — meaning fd 3 is
+          # already the caller's stdout and a capture just works. Supplying `1>/dev/null` makes
+          # that `exec 3>&1` point fd 3 at /dev/null instead, and the variable comes back EMPTY
+          # with exit status 0. Both redirecting idioms were tried against the real builder before
+          # this line was written; only the plain one returns the name.
+          artifact="$(./build --resolve-cname "$FLAVOR")"
+          rootfs=".build/${artifact}.tar"
+          [ -f "$rootfs" ] || { echo "the builder reported $artifact but $rootfs is not there:" >&2; ls -l .build/ >&2; exit 1; }
+          case "$FLAVOR" in
+            *-k3s_*) name="Gardenlinux-1300-${version//./-}-amd64-robot-k3s.tar" ;;
+            *)       name="Gardenlinux-1300-${version//./-}-amd64-robot.tar" ;;
+          esac
+          cp "$rootfs" ".build/$name"
+          xz -T0 -9 ".build/$name"
+          ls -l ".build/$name.xz"
+          ./test/installimage-name.sh "$name.xz"
+
+      # The k3s UKI once more under the snapshot scheme's name, gl-k3s-<vX.Y.Z>-<arch>.uki (the same
+      # name the Hetzner snapshot carries as gardener.cloud/image-name, hack/k3s-image-labels.sh), so
+      # `ownpaas-mgmt node update -uki <url> -sums <SHA256SUMS url>` names what the snapshot names. The
+      # builder's own name stays too: it is what the manifests list. Resolve the builder's name, do not
+      # rebuild it from the flavor (the robot step above says why).
+      - name: Name the k3s UKI after the snapshot scheme (k3s USI flavors only)
+        if: contains(matrix.flavor, '-k3s_') && contains(matrix.flavor, '_usi-')
+        env:
+          FLAVOR: ${{ matrix.flavor }}
+        run: |
+          set -Eeuo pipefail
+          artifact="$(./build --resolve-cname "$FLAVOR")"
+          uki=".build/${artifact}.uki"
+          [ -f "$uki" ] || { echo "the builder reported $artifact but $uki is not there:" >&2; ls -l .build/ >&2; exit 1; }
+          name="$(hack/k3s-image-labels.sh name "${FLAVOR##*-}")"
+          cp "$uki" ".build/$name.uki"
+          ls -l ".build/$name.uki"
+
+      # Run artifacts: CI debugging + workflow_dispatch builds. include-hidden-files because
+      # the builder's output dir .build/ is hidden and upload-artifact@v4 skips hidden paths.
+      - name: Upload run artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.flavor }}
+          include-hidden-files: true
+          path: |
+            .build/*.raw.xz
+            .build/*.tar.xz
+            .build/*.uki
+            .build/*.esp.tar
+            .build/*.manifest
+            .build/*.release
+          if-no-files-found: error
+
+      # Tag builds additionally publish to the GitHub Release — the actual distribution
+      # channel. Matrix jobs race on `release create`; the `|| true` + `upload --clobber`
+      # combination makes that race harmless.
+      - name: Publish release assets
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # `set -e` and NO `|| true` on an upload. The previous form was
+          #     ls .build/*.tar.xz >/dev/null 2>&1 && gh release upload ... || true
+          # which swallows the UPLOAD's exit code as well as the `ls` — and the .tar.xz is the one
+          # asset the whole installimage path depends on: it becomes the root filesystem of a
+          # dedicated server. A failed upload published a green build and a release missing the
+          # only file anyone needed. `|| true` stays on `release create` alone, where the matrix
+          # jobs genuinely race and losing the race is the expected outcome.
+          set -Eeuo pipefail
+          gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes "Garden Linux flavors for Hetzner Cloud & Robot — see README. Tag scheme: the PaaSbox stack tag v<gardener>-pb.<N>, which the repository ruleset protects." 2>/dev/null || true
+          gh release upload "$GITHUB_REF_NAME" --clobber .build/*.raw.xz .build/*.manifest .build/*.release
+          # The robot rootfs, which installimage fetches by plain URL (IMAGE accepts http/https/
+          # ftp, an absolute path, or NFS — functions.sh:929-931). Only the robot job makes one,
+          # so the glob is tested first — but if it matches, the upload must succeed.
+          if compgen -G '.build/*.tar.xz' >/dev/null; then
+            gh release upload "$GITHUB_REF_NAME" --clobber .build/*.tar.xz
+          fi
+          if compgen -G '.build/*.uki' >/dev/null; then
+            gh release upload "$GITHUB_REF_NAME" --clobber .build/*.uki .build/*.esp.tar
+          fi
+
+  # SHA256SUMS over every asset of the release, so a consumer can check what it downloads
+  # (`sha256sum --check --ignore-missing`, or ownpaas-mgmt's `node update -uki <url> -sums <url>`,
+  # which needs the UKI's sum). It does not sign anything: it lists what GitHub stored, and the
+  # release is only as trustworthy as whoever can push a v* tag (the ruleset). The sums are GitHub's
+  # own asset digests (sha256 of the uploaded bytes, computed by GitHub on upload), so nothing is
+  # downloaded again. An asset without a digest fails the job instead of being left out: a list that
+  # silently omits a file is the failure mode this workflow keeps finding elsewhere.
+  checksums:
+    needs: build
+    # Also after a failed flavor: the sums then list what WAS published, which is still true.
+    if: ${{ !cancelled() && startsWith(github.ref, 'refs/tags/') }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Publish SHA256SUMS
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$GITHUB_REF_NAME" \
+            --jq '.assets[] | select(.name != "SHA256SUMS") | [.name, (.digest // "")] | @tsv' |
+            sort > assets.tsv
+          [ -s assets.tsv ] || { echo "the release $GITHUB_REF_NAME has no assets" >&2; exit 1; }
+          while IFS=$'\t' read -r name digest; do
+            case "$digest" in
+              sha256:*) printf '%s  %s\n' "${digest#sha256:}" "$name" ;;
+              *) echo "$name: no sha256 digest from the API ('$digest')" >&2; exit 1 ;;
+            esac
+          done < assets.tsv > SHA256SUMS
+          cat SHA256SUMS
+          gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --clobber SHA256SUMS

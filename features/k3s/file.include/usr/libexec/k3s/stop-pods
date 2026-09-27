@@ -1,0 +1,27 @@
+#!/bin/sh
+# ExecStop of k3s-stop-pods.service — at shutdown, after k3s has stopped, end the pods it leaves behind.
+#
+# k3s.service/k3s-agent.service use KillMode=process ON PURPOSE: restarting k3s (an upgrade, a config
+# change) must not kill the workloads. The price is that at shutdown the containers are nobody's job
+# until systemd-shutdown's last sweep, which waits DefaultTimeoutStopSec (90 s) for any process that
+# ignores SIGTERM — and a container's PID 1 without a handler does exactly that. Measured on this image
+# (2026-09-23): LocalPV-LVM's lvm-driver held every agent reboot for 90 s.
+#
+# So: SIGTERM to everything in kubepods.slice, up to 10 s grace, then cgroup.kill (cgroup v2) for the
+# rest. A drained node has nothing here but DaemonSets; on an undrained one this is the same fate the
+# pods would meet 80 s later.
+cg=/sys/fs/cgroup/kubepods.slice
+[ -d "$cg" ] || exit 0
+pids() { find "$cg" -name cgroup.procs -exec cat {} + 2>/dev/null; }
+p="$(pids)"
+[ -n "$p" ] || exit 0
+# shellcheck disable=SC2086
+kill -TERM $p 2>/dev/null
+i=0
+while [ $i -lt 20 ]; do
+	[ -z "$(pids)" ] && exit 0
+	sleep 0.5
+	i=$((i + 1))
+done
+echo "k3s-stop-pods: $(pids | wc -l) process(es) ignored SIGTERM for 10s, killing kubepods.slice"
+echo 1 > "$cg/cgroup.kill"

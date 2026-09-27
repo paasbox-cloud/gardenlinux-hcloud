@@ -1,0 +1,28 @@
+# k3s agent (kubelet + containerd, joins a server). Shipped DISABLED, like k3s.service; `k3s-role
+# agent` enables it once /etc/rancher/k3s/config.yaml names `server:` and `token:`.
+[Unit]
+Description=Lightweight Kubernetes (k3s agent)
+Documentation=https://docs.k3s.io
+Wants=network-online.target k3s-vg0.service
+After=network-online.target k3s-vg0.service
+Conflicts=k3s.service
+
+[Service]
+Type=notify
+EnvironmentFile=-/etc/default/%N
+KillMode=process
+Delegate=yes
+User=root
+LimitNOFILE=1048576
+LimitNPROC=infinity
+LimitCORE=infinity
+TasksMax=infinity
+TimeoutStartSec=0
+Restart=always
+RestartSec=5s
+ExecStartPre=-/sbin/modprobe br_netfilter
+ExecStartPre=-/sbin/modprobe overlay
+ExecStart=/usr/bin/k3s agent
+
+[Install]
+WantedBy=multi-user.target

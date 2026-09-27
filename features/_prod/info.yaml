@@ -1,0 +1,4 @@
+type: flag
+features:
+  include:
+    - _nopkg

@@ -1,0 +1,24 @@
+# Pods may not reach the hcloud metadata service. It serves this server's user data for the server's
+# whole life to anything that reaches 169.254.169.254: on a first server the cluster's CA private keys
+# and the k3s token, on an agent the join token. Pods reach it through the node's forwarding and NAT; the
+# host's own traffic (hostNetwork pods too: the hcloud CCM, the CSI node plugin) leaves through OUTPUT
+# and never passes PREROUTING. So every packet to it that arrives from outside the host's stack is
+# dropped, in the raw table (before conntrack; a table neither k3s, kube-proxy nor flannel touch),
+# whatever the pod CIDR. DROP, not REJECT (REJECT is not valid in raw): a pod's request times out.
+#
+# Enabled in the image (00-k3s.preset, exec.config), before both roles and required by them: no k3s
+# without the rule. Stopping the unit leaves the rule in place. The same unit name and rule as the
+# ClusterClass' copy (the management cluster's ClusterClass writes one): a copy in /etc/systemd/system overrides this one
+# and the rule is idempotent, so the two never add up. See features/k3s/README.md, "Metadata guard".
+[Unit]
+Description=Pods may not reach the hcloud metadata service (it serves the user data)
+Before=k3s.service k3s-agent.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c 'iptables -w -t raw -C PREROUTING -d 169.254.169.254/32 -m comment --comment metadata-guard -j DROP 2>/dev/null || iptables -w -t raw -I PREROUTING -d 169.254.169.254/32 -m comment --comment metadata-guard -j DROP'
+
+[Install]
+WantedBy=multi-user.target
+RequiredBy=k3s.service k3s-agent.service

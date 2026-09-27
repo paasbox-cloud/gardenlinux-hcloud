@@ -1,0 +1,42 @@
+# Storage and disk packages for a Robot dedicated node.
+#
+# WHY THESE BELONG IN THE IMAGE AND THE REST DOES NOT. The split against nodepool-core's
+# runtime `nodePrepare` is deliberate: this file is a package MANIFEST, which cannot drift in
+# meaning, while the policy (thresholds, units, collector scripts, LVM config) stays in
+# nodepool-core so it ships with a pool-manager train tag instead of an image rebuild. Putting
+# the policy here would couple two release cadences and move it onto the least observable,
+# most expensive thing to change — a bad line in an image is found by booting a box into rescue.
+#
+# lvm2 + mdadm are a BOOT REQUIREMENT, not an optimisation. installimage lays down
+# `SWRAID 1` + `PART lvm vg0 all` + a sized root LV and then builds the initramfs FROM THIS
+# ROOTFS. An initramfs that cannot assemble the array and activate vg0 gives a box that does
+# not boot and is reachable only via rescue — so these have to be present before first boot,
+# and no runtime step can repair it.
+lvm2
+mdadm
+# thin_check runs before a thin pool is activated; without it the pool stays down and every
+# local volume on the node is unusable.
+thin-provisioning-tools
+# dmeventd is what actually enforces thin_pool_autoextend_threshold. lvm2 only Recommends it,
+# and the builder installs no recommends — without this line the threshold is inert and a
+# filling pool turns its volumes read-only with nothing having grown it (measured 2026-09-13:
+# "a thin pool is NOT monitored by dmeventd", and that box HAD dmeventd).
+dmeventd
+# smartctl for the disk-health collector. On this fleet it is not academic: a fleet AX41's drives
+# report Percentage Used 171% and critical warning 0x04 (2026-09-13).
+smartmontools
+# mkfs.xfs for the xfs storage class; the filesystem is made on the NODE, so the tool must be here.
+xfsprogs
+# THE BOOTLOADER INSTALLER, and it is a boot requirement in the same sense lvm2 and mdadm are.
+# installimage installs GRUB and nothing else (functions.sh greps BOOTLOADER for ^grub$, and the
+# custom-image documentation says "You need to select and install the bootloader GRUB"). Garden
+# Linux ships no GRUB: the repository carries grub2-common alone, without the platform modules
+# grub-install needs. So installimage's bootloader step fails with "grub-install: command not
+# found" — AND REPORTS ITSELF DONE, exiting 0. Measured on an AX41 on 2026-09-13: a flawless
+# install on a box that cannot start.
+#
+# syslinux and syslinux-common are already in the image (the latter brings
+# /usr/lib/syslinux/mbr/mbr.bin); `extlinux` is the piece that installs it onto an ext filesystem,
+# and it is the only thing missing. nodepool-core's post-install uses it when grub-install is
+# absent — see pkg/nodeagent/bootloader.go.
+extlinux

@@ -1,0 +1,19 @@
+# The volume group local volumes are provisioned into. Idempotent: creates the PV and vg0 on the
+# partition labelled "vg0" (made by systemd-repart on _usi) only when vg0 does not exist yet, grows
+# the PV when the partition grew, and activates the group. On a Robot box installimage made vg0
+# already (the root LV lives in it), so this finds it and only activates.
+[Unit]
+Description=LVM volume group vg0 for local volumes
+DefaultDependencies=no
+After=local-fs.target systemd-udevd.service
+Wants=systemd-udevd.service
+Before=k3s.service k3s-agent.service shutdown.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/k3s/setup-vg0
+
+[Install]
+WantedBy=multi-user.target

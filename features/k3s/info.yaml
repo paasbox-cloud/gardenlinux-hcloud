@@ -1,0 +1,15 @@
+description: "k3s node — k3s from the image, state in /var, local volumes on LVM vg0 (OpenEBS LocalPV-LVM); an alternative to the gardener element, never combined with it"
+type: element
+features:
+  include:
+    - server
+  exclude:
+    # k3s brings its OWN containerd (embedded in the binary). The gardener element installs and
+    # configures the distribution's containerd for gardener-node-agent; two runtimes on one node
+    # is exactly the drift this OS exists to avoid. The builder refuses a flavor that names both.
+    - gardener
+    # Same exclusions as gardener, for the same reasons: k3s ships no SELinux policy here
+    # (k3s-selinux is an RPM for RHEL-likes), and k3s/kube-proxy/flannel own the packet filter —
+    # the firewall element's nftables table would sit beside them with nobody reconciling the two.
+    - _selinux
+    - firewall

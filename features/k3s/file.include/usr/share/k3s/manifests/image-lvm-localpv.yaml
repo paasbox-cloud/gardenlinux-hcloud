@@ -1,0 +1,35 @@
+# OpenEBS LocalPV-LVM — the CSI that provisions every PVC as its own logical volume in vg0, with a
+# size cap and thin snapshots. Installed by k3s' helm-controller from this image (copied here by
+# /usr/libexec/k3s/sync-manifests on every k3s start). Same engine and chart pin as the dedicated pool
+# (components/pool-manager/docs/local-storage.md, verified on an AX41).
+#
+# valuesContent is components/pool-manager/examples/storage/localpv-lvm/values.yaml without its
+# comments — read the reasons there. hack/k3s-pin.sh check fails when the two drift apart.
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: lvm-localpv
+  namespace: kube-system
+spec:
+  repo: https://openebs.github.io/lvm-localpv
+  chart: lvm-localpv
+  version: 1.10.1
+  targetNamespace: openebs
+  createNamespace: true
+  valuesContent: |-
+    lvmController:
+      snapshotController:
+        enabled: true
+    crds:
+      lvmLocalPv:
+        enabled: true
+        keep: true
+      csi:
+        volumeSnapshots:
+          enabled: true
+          keep: true
+    analytics:
+      enabled: false
+    lvmNode:
+      tolerations:
+        - operator: Exists

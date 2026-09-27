@@ -1,0 +1,5 @@
+description: "OpenZFS (out-of-tree, DKMS-built against the image kernel) for local-PV storage on dedicated boxes — opt-in element"
+type: element
+features:
+  include:
+    - metal

@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Pinned Garden Linux version = the APT dist at packages.gardenlinux.io/gardenlinux/dists/<this>.
+# 3-segment SemVer since the 2150 line (verified: dists/2150.6.0/InRelease exists, dists/2150.6
+# does not). GL0 locks the 2150.x line; bump here + hack/vendor-upstream.sh GL_TAG +
+# get_timestamp together on every patch release.
+# 2150.6.0: kernel 6.18.37, containerd 2.2.5, runc 1.4.3 (verified against the repo's Packages).
+set -eufo pipefail
+
+echo "2150.6.0"

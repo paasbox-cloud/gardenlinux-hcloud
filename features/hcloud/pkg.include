@@ -1,0 +1,4 @@
+# Same cloud-init package set as the upstream aws/openstack platform features.
+python3-cffi-backend
+cloud-init
+dmidecode

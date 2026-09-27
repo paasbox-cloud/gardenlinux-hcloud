@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Commit that tags the build artifacts (first 8 chars land in the artifact filename).
+# Same logic as builder_example/gardenlinux: real commit only when the tree is clean,
+# else "local" — so dirty-tree artifacts are never mistaken for reproducible ones.
+set -eufo pipefail
+
+dir="$(dirname "${BASH_SOURCE[0]}")"
+cd "$dir"
+[ -z "$(git status --porcelain . 2> /dev/null)" ] && git rev-parse HEAD 2> /dev/null || echo local

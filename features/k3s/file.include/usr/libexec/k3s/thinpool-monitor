@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Register every thin pool with dmeventd, so thin_pool_autoextend can fire (see
+# k3s-thinpool-monitor.service). Same logic as nodepool-core's nodepool-thinpool-monitor.
+set -uo pipefail
+lvs --noheadings -o vg_name,lv_name,seg_monitor --select "segtype=thin-pool" 2> /dev/null |
+	while read -r vg lv monitor _rest; do
+		[ -n "$lv" ] || continue
+		[ "$monitor" = monitored ] && continue
+		echo "registering $vg/$lv with dmeventd (was: ${monitor:-unknown})"
+		lvchange --monitor y "$vg/$lv" 2>&1 | tail -1
+	done
+exit 0

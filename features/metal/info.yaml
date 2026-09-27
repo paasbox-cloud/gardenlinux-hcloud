@@ -1,0 +1,10 @@
+description: "metal features (standard kernel, physical components)"
+type: element
+features:
+  include:
+    - server
+    - _legacy
+    - _fwcfg
+  exclude:
+    - cloud
+    - openstackCloud

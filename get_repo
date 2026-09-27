@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# APT repository the builder bootstraps from (mmdebstrap Suites=<get_version output>).
+# This is the official Garden Linux package repo — NOT deb.debian.org (builder_example builds
+# plain Debian; we build Garden Linux). Validated by ./keyring.gpg (vendored from upstream).
+set -eufo pipefail
+
+echo "https://packages.gardenlinux.io/gardenlinux"

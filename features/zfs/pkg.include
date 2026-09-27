@@ -1,0 +1,6 @@
+# Userland only. The MODULE is built in exec.config, because a DKMS postinst in a chroot would
+# build against the BUILD HOST's kernel (uname -r), not against the kernel this image ships.
+zfsutils-linux
+zfs-dkms
+dkms
+linux-headers-$arch

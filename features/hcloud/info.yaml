@@ -1,0 +1,8 @@
+description: "Hetzner Cloud platform, cloud-init + Hetzner datasource"
+type: platform
+features:
+  include:
+    # Mirrors features/aws (the closest upstream cloud platform): `cloud` transitively pulls
+    # server/base/ssh/sap/log + _legacy (BIOS+UEFI dual-boot for the classic variant; the
+    # _usi flag excludes _legacy again for the EFI-only in-place-capable variant).
+    - cloud

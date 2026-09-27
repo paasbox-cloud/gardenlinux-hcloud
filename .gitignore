@@ -1,0 +1,18 @@
+# build output
+.build/
+
+# generated signing material (cert/ carries TOOLING only — Makefile/gencert/genefiauth/gengpg/
+# *.conf templates. Running `./cert/build ...` generates key material locally; keys must NEVER
+# be committed. Upstream commits its gardenlinux-nightly-*/release-* PUBLIC certs; we don't.)
+cert/*.crt
+cert/*.key
+cert/*.csr
+cert/*.der
+cert/*.pub
+cert/*.auth
+cert/*.esl
+cert/*.chain
+cert/*.arn
+cert/GUID.txt
+cert/*.aws-efivars
+cert/*.edk2-efivars

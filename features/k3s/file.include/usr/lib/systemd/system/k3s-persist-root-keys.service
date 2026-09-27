@@ -1,0 +1,18 @@
+# On _usi /root is a tmpfs: the key cloud-init delivers to /root/.ssh/authorized_keys (once per
+# instance) is gone after the first reboot, and a k3s node — unlike a Gardener node — is a long-lived
+# box someone has to reach. Copy the delivered keys to /etc/ssh/authorized_keys.d/root, which lives
+# in the persistent /etc overlay and which sshd reads (sshd_config.d/50-k3s-authorized-keys.conf).
+# Keys are only ever ADDED here; removing access means editing that file.
+[Unit]
+Description=Persist root's cloud-init SSH keys across reboots
+# cc_ssh writes the key in cloud-init.service (the network stage). sshd reads authorized keys at each
+# login, so no ordering against ssh.service is needed.
+After=cloud-init.service
+ConditionPathExists=/root/.ssh/authorized_keys
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/k3s/persist-root-keys
+
+[Install]
+WantedBy=multi-user.target

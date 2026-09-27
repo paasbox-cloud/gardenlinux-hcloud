@@ -1,0 +1,12 @@
+# The k3s release baked into /usr/bin/k3s, and the checksums it must have.
+#
+# THE VERSION follows `runtime.k3s` in the monorepo's deploy/versions.yaml (hack/k3s-pin.sh check
+# fails when they differ). THE CHECKSUMS are the trust anchor: exec.config downloads the release's
+# own sha256sum-<arch>.txt AND the binary, and fails the build unless all three agree — this file,
+# the release's sum file, and the bytes. A re-published or tampered release asset is a failed build,
+# not a node. Update all four lines together with `hack/k3s-pin.sh update <version>`.
+#
+# Sourced by features/k3s/exec.config (bash, variables only).
+K3S_VERSION=v1.36.4+k3s1
+K3S_SHA256_amd64=835873f37245fc615f547a2fe2af9402a347875f13fa64a1f136de644955ea3f
+K3S_SHA256_arm64=c920706346d5ad4e5cd3c7bf1bb09ce71ebe07fec829e513e40f1caf98aed8bb

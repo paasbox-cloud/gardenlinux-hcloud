@@ -1,0 +1,129 @@
+#!/usr/bin/env bash
+
+set -eufo pipefail
+
+input="$1"
+output="$2"
+
+export PATH="/builder/image.d:$PATH"
+
+rootfs="$(mktemp -d)"
+mount -t tmpfs -o size="$TEMPFS_SIZE" tmpfs "$rootfs"
+tar --extract --xattrs --xattrs-include '*' --directory "$rootfs" < "$input"
+
+kernel="$(find "$rootfs/boot/" -name 'vmlinuz-*' -printf '%P\n' | sort -V | tail -n 1)"
+
+echo "creating root EROFS disk"
+
+kernel_stash_dir="$(mktemp -d)"
+mv "$rootfs/boot/$kernel" "$kernel_stash_dir/$kernel"
+
+erofs_cpio_dir="$(mktemp -d)"
+erofs="$erofs_cpio_dir/root.img"
+mkfs.erofs --quiet -z zstd,12 -E force-inode-compact -T "$BUILDER_TIMESTAMP" -U "$(echo "gardenlinux:$BUILDER_VERSION:erofs:root" | uuid_hash)" "$erofs" "$rootfs"
+
+size_chroot="$(du -s "$rootfs" | cut -f 1)"
+size_erofs="$(du "$erofs" | cut -f 1)"
+echo "root disk compressed by $(( ( ( size_chroot - size_erofs ) * 100 ) / size_chroot ))% ($(du -sh "$rootfs" | cut -f 1) -> $(du -h "$erofs" | cut -f 1))"
+
+mv "$kernel_stash_dir/$kernel" "$rootfs/boot/$kernel"
+
+echo
+echo "building initrd with embedded root disk"
+
+erofs_cpio="$(mktemp)"
+(cd "$erofs_cpio_dir" && echo root.img | cpio -o -H newc) > "$erofs_cpio"
+rm -rf "$erofs_cpio_dir"
+
+mount --rbind /proc "$rootfs/proc"
+
+mount -t tmpfs -o mode=0755,size=4k tmpfs "$rootfs/dev"
+for i in null zero random urandom; do
+	touch "$rootfs/dev/$i"
+	mount --bind "/dev/$i" "$rootfs/dev/$i"
+done
+cp --no-dereference /dev/{fd,stdin,stdout,stderr} "$rootfs/dev/"
+
+mount -t tmpfs -o size=1G tmpfs "$rootfs/tmp"
+
+mkdir "$rootfs/tmp/initrd.include"
+IFS=',' read -r -a features <<< "$BUILDER_FEATURES"
+for feature in "${features[@]}"; do
+	if [ -e "/builder/features/$feature/initrd.include" ]; then
+		cp -a "/builder/features/$feature/initrd.include/." "$rootfs/tmp/initrd.include"
+	fi
+done
+
+case "$BUILDER_ARCH" in
+	amd64)
+		uefi_arch=X64
+		;;
+	arm64)
+		uefi_arch=AA64
+		;;
+esac
+
+uki="$(mktemp)"
+touch "$rootfs/initrd"
+touch "$rootfs/uki"
+mount --bind "$uki" "$rootfs/uki"
+
+chroot "$rootfs" dracut \
+	--no-hostonly \
+	--force \
+	--tmpdir /tmp \
+	--kver "${kernel#*-}" \
+	--modules "bash dash systemd systemd-initrd systemd-repart systemd-cryptsetup kernel-modules kernel-modules-extra terminfo udev-rules dracut-systemd base fs-lib shutdown crypt" \
+	--reproducible \
+	--install 'find findmnt grep lsblk tail head realpath basename od sfdisk mkfs.ext4 resizefat32 dd cryptsetup /usr/lib/systemd/systemd-pcrextend' \
+	--include '/tmp/initrd.include' / \
+	--add-drivers erofs \
+	/initrd
+
+read -r _ cmdline < "$rootfs/etc/kernel/cmdline"
+
+size_initrd="$(du -h "$rootfs/initrd" | cut -f 1)"
+size_erofs_cpio="$(du -h "$erofs_cpio" | cut -f 1)"
+cat "$erofs_cpio" >> "$rootfs/initrd"
+size_initrd_total="$(du -h "$rootfs/initrd" | cut -f 1)"
+echo "initrd size: $size_initrd (dracut) + $size_erofs_cpio (EROFS) = $size_initrd_total"
+
+chroot "$rootfs" ukify build \
+	--stub "/usr/lib/systemd/boot/efi/linux$(tr '[:upper:]' '[:lower:]' <<< "$uefi_arch").efi.stub" \
+	--linux "/boot/$kernel" \
+	--initrd "/initrd" \
+	--cmdline "$cmdline" \
+	--uname "${kernel#*-}" \
+	--os-release "@/etc/os-release" \
+	--output /uki
+
+rm "$rootfs/initrd"
+
+umount "$rootfs/uki"
+umount -l "$rootfs/proc"
+umount -R "$rootfs/dev"
+umount "$rootfs/tmp"
+
+esp_dir="$(mktemp -d)"
+
+IFS=',' read -r -a features <<< "$BUILDER_FEATURES"
+for feature in "${features[@]}"; do
+	if [ -e "/builder/features/$feature/usi.config" ]; then
+		"/builder/features/$feature/usi.config" "$uki" "$esp_dir" "$rootfs"
+	fi
+done
+
+rm "$uki"
+
+umount "$rootfs"
+rmdir "$rootfs"
+
+esp_tar="$(mktemp)"
+
+find "$esp_dir" -mindepth 1 -printf '%P\n' | tar --create --mtime="@$BUILDER_TIMESTAMP" --sort name --numeric-owner --pax-option=exthdr.name=%d/PaxHeaders/%f,delete=atime,delete=ctime --directory "$esp_dir" --no-recursion -T - > "$esp_tar"
+rm -rf "$esp_dir"
+
+cp --sparse always "$esp_tar" "$output"
+rm "$esp_tar"
+
+sha256sum "$output"

@@ -1,0 +1,22 @@
+#!/bin/sh
+# ExecStartPre of k3s.service: copy the image's bootstrap manifests into k3s' auto-deploy directory.
+#
+# Every start, so the manifests follow the image: `gardenlinux-update` to a new image (or a rollback
+# to the other slot) brings its own set. Only files named image-*.yaml are managed here — anything an
+# operator puts next to them is left alone — and an image-*.yaml the current image no longer ships is
+# removed, which makes k3s' deploy controller delete what it had applied from it.
+#
+# Opting out of one manifest is k3s' own mechanism: an empty `<name>.skip` next to it
+# (e.g. /var/lib/rancher/k3s/server/manifests/image-lvm-localpv.yaml.skip).
+set -eu
+src=/usr/share/k3s/manifests
+dst=/var/lib/rancher/k3s/server/manifests
+install -d -m 0700 "$dst"
+for f in "$src"/image-*.yaml; do
+	[ -e "$f" ] || continue
+	cmp -s "$f" "$dst/${f##*/}" 2>/dev/null || install -m 0600 "$f" "$dst/${f##*/}"
+done
+for f in "$dst"/image-*.yaml; do
+	[ -e "$f" ] || continue
+	[ -e "$src/${f##*/}" ] || rm -f "$f"
+done

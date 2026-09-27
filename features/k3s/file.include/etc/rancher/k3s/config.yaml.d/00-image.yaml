@@ -1,0 +1,13 @@
+# Defaults this image sets for k3s. Server AND agent read this file, so it may only hold keys both
+# roles accept: an agent does NOT skip a server-only key, it exits with "flag provided but not defined"
+# (measured 2026-09-23 with `disable+:` here — the agent never started). Server-only defaults are
+# arguments in k3s.service's ExecStart instead (--disable=local-storage).
+#
+# k3s reads /etc/rancher/k3s/config.yaml first and then config.yaml.d/*.yaml in order, and a later
+# scalar REPLACES an earlier one — so node-specific settings go in config.yaml and this file wins
+# where it sets something.
+#
+# data-dir: stated, not changed. /usr/libexec/k3s/sync-manifests copies the image's bootstrap manifests
+# into <data-dir>/server/manifests and names this path; /var is the persistent area that survives
+# image updates, so the cluster state lives there.
+data-dir: /var/lib/rancher/k3s

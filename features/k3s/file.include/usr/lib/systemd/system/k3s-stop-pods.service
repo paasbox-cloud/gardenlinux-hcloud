@@ -1,0 +1,17 @@
+# At shutdown, end k3s' pods right after k3s itself (see /usr/libexec/k3s/stop-pods). Ordered
+# Before= the role units, so on shutdown it stops AFTER them; a plain `systemctl restart k3s` does not
+# touch it, so containers keep running across k3s restarts as KillMode=process intends.
+[Unit]
+Description=End k3s' pods at shutdown, after k3s has stopped
+After=local-fs.target
+Before=k3s.service k3s-agent.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/true
+ExecStop=/usr/libexec/k3s/stop-pods
+TimeoutStopSec=30s
+
+[Install]
+WantedBy=multi-user.target

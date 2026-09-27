@@ -1,0 +1,16 @@
+apparmor
+containerd
+ethtool
+ipvsadm
+socat
+curl
+logrotate
+xfsprogs
+btrfs-progs
+jq
+ipvsadm
+cifs-utils
+nfs-common
+netcat-openbsd
+arptables
+ebtables

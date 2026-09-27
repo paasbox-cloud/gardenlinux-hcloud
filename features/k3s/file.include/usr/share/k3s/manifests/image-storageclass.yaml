@@ -1,0 +1,39 @@
+# The storage classes of a k3s node built from this image. local-lvm-thin is the cluster DEFAULT (k3s'
+# local-path is disabled in config.yaml.d/00-image.yaml, so it is the only one): a PVC is a thin
+# logical volume in vg0 whose size is a hard cap, with native thin snapshots. Unlike the dedicated
+# pool's shoots, a k3s node has no network block storage to prefer, so a local volume IS the default.
+#
+# Parameters follow components/pool-manager/examples/storage/localpv-lvm/storageclasses.yaml.
+# WaitForFirstConsumer is the only correct binding mode for a node-local volume.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: local-lvm-thin
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: local.csi.openebs.io
+parameters:
+  storage: lvm
+  volgroup: vg0
+  thinProvision: "yes"
+  fsType: ext4
+  scheduler: SpaceWeighted
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true
+reclaimPolicy: Delete
+---
+# Extents reserved up front: the capacity is real the moment the volume binds.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: local-lvm-thick
+provisioner: local.csi.openebs.io
+parameters:
+  storage: lvm
+  volgroup: vg0
+  thinProvision: "no"
+  fsType: ext4
+  scheduler: SpaceWeighted
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true
+reclaimPolicy: Delete

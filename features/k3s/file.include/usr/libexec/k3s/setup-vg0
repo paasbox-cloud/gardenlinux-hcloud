@@ -1,0 +1,47 @@
+#!/bin/bash
+# ExecStart of k3s-vg0.service — make sure the volume group vg0 exists and is active. Idempotent.
+#
+#   vg0 exists          → grow its PVs if their partitions grew (repart grows the last partition when
+#                         the disk grows), activate, done. This is every boot after the first, and every
+#                         boot of a Robot box (installimage made vg0 and put the root LV in it).
+#   partition "vg0"     → pvcreate (only if it carries no signature at all) + vgcreate. First boot on _usi.
+#   neither             → say so and exit 0. k3s still starts; volumes on the LVM class stay Pending.
+#                         That is a node built without the layout (a classic raw, a Robot box written
+#                         with dd) and no reason to keep the cluster down.
+#
+# NEVER formats a partition that carries anything: a signature that is not an LVM PV is a refusal.
+set -Eeuo pipefail
+vg=vg0
+dev=/dev/disk/by-partlabel/vg0
+
+if vgs "$vg" > /dev/null 2>&1; then
+	pvs --noheadings -o pv_name --select "vg_name=$vg" | while read -r pv; do
+		pvresize -q "$pv" || echo "pvresize $pv failed (not fatal)"
+	done
+	vgchange -q -ay "$vg" > /dev/null
+	echo "$vg present: $(vgs --noheadings --units g -o vg_size,vg_free "$vg" | xargs)"
+	exit 0
+fi
+
+# The partition is created in the initrd, before switch-root, so it is normally there already; allow
+# udev a moment to publish the by-partlabel link.
+for _ in $(seq 1 20); do
+	[ -b "$dev" ] && break
+	udevadm settle -t 1 || true
+	sleep 0.5
+done
+if [ ! -b "$dev" ]; then
+	echo "no volume group $vg and no partition labelled vg0 — local volumes are unavailable on this node" >&2
+	exit 0
+fi
+
+part="$(realpath "$dev")"
+sig="$(blkid -p -o value -s TYPE "$part" 2> /dev/null || true)"
+case "$sig" in
+	"") pvcreate -q "$part" ;;
+	LVM2_member) ;;
+	*) echo "refusing: $part (partlabel vg0) carries a '$sig' signature, not an LVM PV" >&2; exit 1 ;;
+esac
+vgcreate -q "$vg" "$part"
+vgchange -q -ay "$vg" > /dev/null
+echo "created $vg on $part: $(vgs --noheadings --units g -o vg_size,vg_free "$vg" | xargs)"

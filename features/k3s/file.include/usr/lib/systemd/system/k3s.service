@@ -1,0 +1,35 @@
+# k3s server (control plane + kubelet). Shipped DISABLED: the node's role comes from provisioning
+# (`k3s-role server`, see features/k3s/README.md), which writes /etc/rancher/k3s/config.yaml and
+# enables exactly one of k3s.service / k3s-agent.service. Modeled on the unit get.k3s.io writes.
+[Unit]
+Description=Lightweight Kubernetes (k3s server)
+Documentation=https://docs.k3s.io
+Wants=network-online.target k3s-vg0.service
+After=network-online.target k3s-vg0.service
+Conflicts=k3s-agent.service
+
+[Service]
+Type=notify
+EnvironmentFile=-/etc/default/%N
+KillMode=process
+Delegate=yes
+User=root
+LimitNOFILE=1048576
+LimitNPROC=infinity
+LimitCORE=infinity
+TasksMax=infinity
+TimeoutStartSec=0
+Restart=always
+RestartSec=5s
+ExecStartPre=-/sbin/modprobe br_netfilter
+ExecStartPre=-/sbin/modprobe overlay
+# The platform's bootstrap manifests live in the image (/usr/share/k3s/manifests) and are copied into
+# k3s' auto-deploy directory on EVERY start, so an image update is also an update of them.
+ExecStartPre=/usr/libexec/k3s/sync-manifests
+# local-path cannot cap a volume's size; volumes come from OpenEBS LocalPV-LVM in vg0 instead. A flag
+# here, not a key in config.yaml.d (agents refuse server-only keys there). String-slice flags ADD to
+# config.yaml's `disable:` list, so a node's own `disable: [traefik]` keeps working.
+ExecStart=/usr/bin/k3s server --disable=local-storage
+
+[Install]
+WantedBy=multi-user.target

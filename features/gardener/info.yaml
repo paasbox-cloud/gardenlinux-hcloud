@@ -1,0 +1,11 @@
+description: 'gardener.cloud requirements (e.g. containerd)'
+type: element
+features:
+  include:
+    - server
+    - sap
+    - iscsi
+    - nvme
+  exclude:
+    - _selinux
+    - firewall

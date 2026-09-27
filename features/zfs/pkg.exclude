@@ -1,0 +1,2 @@
+# Nothing excluded. zfs-zed (the event daemon) is intentionally NOT installed: it mails and runs
+# hooks, and a node whose pool is managed by a CSI has no operator reading node-local mail.

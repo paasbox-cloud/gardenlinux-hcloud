@@ -1,0 +1,30 @@
+# What a k3s node needs from the distribution. k3s itself is ONE static binary (/usr/bin/k3s,
+# fetched and checksum-verified by exec.config) that carries containerd, runc, the CNI plugins,
+# flannel, kube-proxy and kubectl/crictl/ctr. The host still provides:
+#
+# the packet filter k3s drives. k3s prefers the host's iptables when there is one; Garden Linux's
+# default alternative is iptables-nft (1.8.11), which k3s and kube-proxy support. The gardener element
+# switches to iptables-legacy for Cilium; k3s' flannel has no such need, so the default stays.
+iptables
+conntrack
+# (ipset is not in the Garden Linux repository; k3s carries its own in the binary's aux tools, which
+# is what kube-router's network policy controller uses when the host has none.)
+ethtool
+socat
+# containerd refuses to start a container when AppArmor is enabled in the kernel and the parser is
+# missing ("apparmor_parser: not found"); the LSM is chosen explicitly in cmdline.d/90-lsm.cfg.
+apparmor
+# exec.config downloads the k3s release with it, and it is the one tool every debugging session
+# reaches for first. ca-certificates for the TLS in both cases.
+curl
+ca-certificates
+jq
+#
+# LOCAL VOLUMES — the same package set features/robot ships for the dedicated pool, and for the same
+# reasons (read that file's comments): the CSI (OpenEBS LocalPV-LVM) carves logical volumes out of vg0,
+# thin_check guards the thin pool's activation, dmeventd makes thin_pool_autoextend real, mkfs.xfs
+# must exist ON THE NODE for an xfs class.
+lvm2
+thin-provisioning-tools
+dmeventd
+xfsprogs

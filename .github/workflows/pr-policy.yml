@@ -1,0 +1,41 @@
+# Snapshot policy for pull requests: explain once, label, and check the DCO sign-off.
+name: pr-policy
+on:
+  pull_request_target:
+    types: [opened]
+  pull_request:
+    types: [opened, synchronize]
+permissions:
+  pull-requests: write
+  contents: read
+jobs:
+  explain:
+    if: github.event_name == 'pull_request_target'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const body = [
+              "Thanks for the pull request. This repository is a **release snapshot** of a component developed in a",
+              "private monorepo (see CONTRIBUTING.md): pull requests are reviewed here, and if accepted, re-applied",
+              "in the monorepo and released with the next tag, with credit in the CHANGELOG. The PR is then closed",
+              "with a note rather than merged. Please make sure every commit is signed off (`git commit -s`).",
+            ].join(" ");
+            await github.rest.issues.createComment({ ...context.repo, issue_number: context.issue.number, body });
+            await github.rest.issues.addLabels({ ...context.repo, issue_number: context.issue.number, labels: ["snapshot-policy"] });
+  dco:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Every commit carries a Signed-off-by trailer
+        run: |
+          set -e
+          base="${{ github.event.pull_request.base.sha }}"; head="${{ github.event.pull_request.head.sha }}"
+          bad=0
+          for c in $(git rev-list "$base..$head"); do
+            git log -1 --format=%B "$c" | grep -q '^Signed-off-by: ' || { echo "missing sign-off: $c"; bad=1; }
+          done
+          exit $bad

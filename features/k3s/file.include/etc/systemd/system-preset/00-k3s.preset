@@ -1,0 +1,9 @@
+# The role units stay off until provisioning chooses one (k3s-role). Debian's default preset would
+# enable any unit with an [Install] section on a first-boot preset-all.
+disable k3s.service
+disable k3s-agent.service
+enable k3s-vg0.service
+enable k3s-thinpool-monitor.timer
+enable k3s-persist-root-keys.service
+enable k3s-stop-pods.service
+enable metadata-guard.service

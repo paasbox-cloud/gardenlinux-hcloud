@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# k3s-role — give a k3s node its role. The image ships k3s.service and k3s-agent.service DISABLED;
+# provisioning (cloud-init user data on hcloud, installimage's post-install on Robot) calls this once.
+#
+#   k3s-role server [--now]    enable k3s.service (control plane + kubelet)
+#   k3s-role agent  [--now]    enable k3s-agent.service; config.yaml must name `server:` and `token:`
+#   k3s-role none              disable both
+#   k3s-role show              print the enabled role
+#
+# Write /etc/rancher/k3s/config.yaml FIRST (token, tls-san, node-label, cluster-init/server for HA …).
+# The image's own defaults are in /etc/rancher/k3s/config.yaml.d/00-image.yaml, which k3s reads after
+# config.yaml. Without --now nothing is started, which is what an installimage chroot needs; in cloud-init
+# use --now (it starts without blocking the boot).
+set -Eeuo pipefail
+
+config=/etc/rancher/k3s/config.yaml
+role="${1:-}"
+now=0
+[ "${2:-}" = --now ] && now=1
+
+has_key() { [ -f "$config" ] && grep -qE "^$1:[[:space:]]*[^[:space:]]" "$config"; }
+
+case "$role" in
+	server)
+		unit=k3s.service other=k3s-agent.service ;;
+	agent)
+		has_key server && has_key token || {
+			echo "k3s-role: an agent needs 'server:' and 'token:' in $config" >&2
+			exit 2
+		}
+		unit=k3s-agent.service other=k3s.service ;;
+	none)
+		systemctl disable k3s.service k3s-agent.service
+		[ "$now" = 1 ] && systemctl stop k3s.service k3s-agent.service
+		exit 0 ;;
+	show)
+		for u in k3s.service k3s-agent.service; do
+			[ "$(systemctl is-enabled "$u" 2> /dev/null || true)" = enabled ] && echo "${u%.service}"
+		done
+		exit 0 ;;
+	*)
+		sed -n '2,/^set /p' "$0" | sed '$d; s/^# \{0,1\}//' >&2
+		exit 2 ;;
+esac
+
+systemctl disable "$other" 2> /dev/null || true
+systemctl enable "$unit"
+if [ "$now" = 1 ]; then
+	systemctl stop "$other" 2> /dev/null || true
+	systemctl start --no-block "$unit"
+fi
+echo "k3s-role: $unit enabled$([ "$now" = 1 ] && echo ' and starting')"

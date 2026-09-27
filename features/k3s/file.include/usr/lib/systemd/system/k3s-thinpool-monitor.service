@@ -1,0 +1,9 @@
+# Same as nodepool-core's nodepool-thinpool-monitor: the CSI creates vg0's thin pool from inside its
+# container, whose lvm.conf never registers it with dmeventd, so thin_pool_autoextend never fires
+# unless the host registers it. Idempotent and silent when there is nothing to do.
+[Unit]
+Description=Register LVM thin pools with dmeventd so autoextend can fire
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/k3s/thinpool-monitor
