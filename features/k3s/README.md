@@ -16,8 +16,8 @@ this OS exists to avoid, so there are two images, not one image with a switch.
 | cname | Boot | In-place | Use |
 |---|---|---|---|
 | `hcloud-k3s_prod_usi-amd64` | EFI-only (USI/UKI) | **yes** (`gardenlinux-update`, A/B) | k3s on CPX/CCX |
-| `hcloud-k3s_prod_usi-arm64` | EFI-only (USI/UKI) | **yes** | k3s on CAX; ownpaas' vz backend on a Mac |
-| `baremetal-robot-k3s_prod-amd64` (builder name `baremetal-k3s-robot_prod-amd64`) | BIOS+UEFI | no | k3s on a Robot box, installed through installimage |
+| `hcloud-k3s_prod_usi-arm64` | EFI-only (USI/UKI) | **yes** | k3s on CAX; a Hetzner Cloud–compatible test environment on a Mac (vz) |
+| `baremetal-robot-k3s_prod-amd64` (builder name `baremetal-k3s-robot_prod-amd64`) | UEFI as installed (installimage on RAID1; `features/robot/README.md`) | no | k3s on a Robot box, installed through installimage; carries cloud-init (NoCloud only) for the bootstrap at claim time |
 
 **No classic `hcloud-k3s_prod-*`.** The classic flavor has one reason to exist: BIOS-only CX types.
 But it has no in-place update, so on a classic node a new OS — and with it a new k3s — means
@@ -56,7 +56,7 @@ both **node-local** — a volume lives on the disk of the node that first ran it
 | `local-lvm-thin` | **yes, the only one** | a thin LV; its size is a hard cap, snapshots are cheap |
 | `local-lvm-thick` | no | extents reserved up front |
 
-On Hetzner Cloud (and on ownpaas, where vz serves hcloud volumes over NVMe/TCP, and KubeVirt as LVM
+On Hetzner Cloud (and on a Hetzner Cloud–compatible test environment, where vz serves hcloud volumes over NVMe/TCP, and KubeVirt as LVM
 PVCs) a cluster can add **network volumes** with Hetzner's
 [hcloud-csi-driver](https://github.com/hetznercloud/csi-driver) (`runtime.hcloud-csi` in
 the stack's version pins, v2.21.2): class `hcloud-volumes`, provisioner `csi.hetzner.cloud`, volumes of
@@ -191,8 +191,43 @@ upgrade (`k3s etcd-snapshot save`), because that step cannot be rolled back by t
 Persistent volumes are not in the snapshot: LVM volumes are backed up by the application (e.g.
 CloudNativePG to S3) or live on `hcloud-volumes`.
 
-**Robot** — installimage's post-install runs in the chroot of the new root, where nothing may be
-started: write the same `config.yaml`, then `k3s-role server` (or `agent`) **without** `--now`.
+**Robot, by hand** — installimage's post-install runs in the chroot of the new root, where nothing
+may be started: write the same `config.yaml`, then `k3s-role server` (or `agent`) **without** `--now`.
+
+### Robot: the bootstrap at claim time
+
+A Robot box of the pool is installed **before** anyone knows which cluster will claim it, and it has
+no metadata service and no user data. So nothing above can be written at install time. Instead
+pool-manager's post-install puts `nodepool-agent` on the box (nodepool-core `cmd/nodepool-agent`) with
+a per-wipe token. The box boots with **no k3s role** and the agent asks the pool's onboarding endpoint
+until the box is claimed. Then it
+
+1. brings the vSwitch VLAN up (systemd-networkd, MTU 1400), when the claim names one;
+2. writes `/etc/rancher/k3s/config.yaml.d/30-nodepool.yaml`: `node-name`, `node-ip`, with a VLAN
+   `flannel-iface`, and `kubelet-arg+: ["provider-id=hrobot://<server number>"]`;
+3. writes the claim's bootstrap, **the same cloud-config a cloud server gets as user data**, into
+   `/var/lib/cloud/seed/nocloud/` and runs cloud-init's four stages over it. Its `write_files` writes
+   `config.yaml`, its `runcmd` calls `k3s-role server|agent --now`;
+4. erases its token and the seed.
+
+For that, and only in a flavor with the `robot` element, `exec.config` (step 6) configures cloud-init:
+
+| What | Where | Why |
+|---|---|---|
+| the packages | `pkg.include`: `cloud-init`, `python3-cffi-backend`, `dmidecode` | the set `features/hcloud` ships. The `metal` platform excludes `cloud`, so on Robot nothing else brings them |
+| **disabled at boot** | `/etc/cloud/cloud-init.disabled` | with a single datasource in the list `ds-identify` does not search, it enables cloud-init on every boot; without a seed (before the claim, and again after the agent erased it) every stage would fail on every boot. The stages the agent runs by hand do not look at this file |
+| NoCloud only | `/etc/cloud/cloud.cfg.d/50-robot-k3s.cfg`: `datasource_list: [ NoCloud ]` | there is no metadata service to ask, and no other source may decide what the node runs |
+| no network configuration | the same file: `network: {config: disabled}` | the network is systemd-networkd's and the agent's. Without it cloud-init writes a fallback configuration for the first NIC, over the node's only link |
+| three modules | the same file: `write_files`, `runcmd`, `scripts_user` | what a cluster-api-k3s cloud-config uses. The distribution's full list would, at claim time on a node that has been up since its install, regenerate SSH host keys, create a default user and touch hostname, locale and apt |
+
+The build fails if cloud-init does not resolve exactly that (it is asked through its own
+`util.read_conf_with_confd`, the way `lvmconfig` is asked in step 4). Run on Debian 13's cloud-init
+25.1.4 with these files (2026-10-02): the four stages by hand apply the seed, run only those three
+modules, render the `## template: jinja` header from the seed's `meta-data`, and a failed `runcmd`
+fails the final stage. **Not yet run on a Garden Linux build or on hardware.**
+
+The hcloud flavors are unchanged: they keep the `hcloud` element's cloud-init configuration (the
+Hetzner datasource, run at boot).
 
 **Several nodes on a private network** (hcloud network, a vSwitch): set `node-ip:` to the node's
 private address **and** `flannel-iface:` to the private NIC (`enp7s0` on hcloud). `node-ip` alone is

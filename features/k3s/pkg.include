@@ -28,3 +28,13 @@ lvm2
 thin-provisioning-tools
 dmeventd
 xfsprogs
+#
+# cloud-init, the same package set features/hcloud ships (the upstream aws/openstack platforms' set).
+# The Cluster API bootstrap of a k3s node is a cloud-config on EVERY platform. On hcloud the platform
+# element brings these already and reads the Hetzner datasource; on Robot there is no metadata service,
+# the platform (metal) excludes `cloud`, and the bootstrap arrives by pull at claim time: nodepool-agent
+# writes it into a NoCloud seed and runs cloud-init over it. exec.config (step 6) configures that, and
+# only for a flavor that has the `robot` element.
+python3-cffi-backend
+cloud-init
+dmidecode

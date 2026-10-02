@@ -9,8 +9,8 @@
 # out /var and vg0 on first boot exactly as on a fresh hcloud server. KVM is used when /dev/kvm exists
 # and the guest arch is the host's; otherwise TCG. Under TCG the node boots and check "image" passes,
 # but LocalPV-LVM's CSI calls time out on the emulated CPU (measured in an OrbStack machine, which has
-# no KVM) — for checks 1–3 use KVM, or boot the .raw on a Mac with Virtualization.framework (ownpaas'
-# vz backend) and point test/k3s-node-test.sh at it.
+# no KVM) — for checks 1–3 use KVM, or boot the .raw on a Mac with Virtualization.framework
+# (vz) and point test/k3s-node-test.sh at it.
 #
 # Provisioning is what an hcloud server gets, through the NoCloud datasource (a `cidata` seed; the
 # image's datasource_list is Hetzner, NoCloud, None): user data that puts the key on ROOT (Hetzner's

@@ -51,8 +51,10 @@ jobs:
           set -Eeuo pipefail
           # hcloud classic: BIOS+UEFI dual-boot raw — boots every family incl. BIOS-only CX; no in-place.
           # hcloud USI:     EFI-only (CPX/CCX/CAX), A/B in-place-capable via gardenlinux-update.
-          # robot:          full kernel (igb/AHCI/mdadm), BIOS+UEFI dual, NO cloud-init — Robot has no
-          #                 metadata service, so bootstrap is the onboarding agent's job.
+          # robot:          full kernel (igb/AHCI/mdadm), installed through installimage and booted UEFI
+          #                 (features/robot/README.md). Robot has no metadata service, so bootstrap is
+          #                 the onboarding agent's job: the gardener flavor has NO cloud-init, the k3s
+          #                 flavor has it with the NoCloud datasource only, run by the agent at claim time.
           # *-k3s_*:        the k3s node element INSTEAD of gardener (features/k3s/README.md): k3s in the
           #                 image, local volumes on LVM vg0. USI only on hcloud — a classic k3s node could
           #                 only be upgraded by a rebuild, which wipes vg0. The build also downloads the
@@ -159,7 +161,7 @@ jobs:
 
       # The k3s UKI once more under the snapshot scheme's name, gl-k3s-<vX.Y.Z>-<arch>.uki (the same
       # name the Hetzner snapshot carries as gardener.cloud/image-name, hack/k3s-image-labels.sh), so
-      # `ownpaas-mgmt node update -uki <url> -sums <SHA256SUMS url>` names what the snapshot names. The
+      # a node update by UKI URL, checked against SHA256SUMS, names what the snapshot names. The
       # builder's own name stays too: it is what the manifests list. Resolve the builder's name, do not
       # rebuild it from the flavor (the robot step above says why).
       - name: Name the k3s UKI after the snapshot scheme (k3s USI flavors only)
@@ -220,7 +222,7 @@ jobs:
           fi
 
   # SHA256SUMS over every asset of the release, so a consumer can check what it downloads
-  # (`sha256sum --check --ignore-missing`, or ownpaas-mgmt's `node update -uki <url> -sums <url>`,
+  # (`sha256sum --check --ignore-missing`, or a node update by UKI URL checked against these sums,
   # which needs the UKI's sum). It does not sign anything: it lists what GitHub stored, and the
   # release is only as trustworthy as whoever can push a v* tag (the ruleset). The sums are GitHub's
   # own asset digests (sha256 of the uploaded bytes, computed by GitHub on upload), so nothing is

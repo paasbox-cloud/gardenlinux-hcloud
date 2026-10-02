@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # k3s-node-test.sh — the k3s image checks (features/k3s/README.md "Testing"), against ONE booted node
 # reachable over SSH as root, whose role is `server`. Where the node runs does not matter: QEMU
-# (test/k3s-qemu.sh drives this script), ownpaas' vz backend, an hcloud server, a Robot box.
+# (test/k3s-qemu.sh drives this script), Apple Virtualization.framework (vz), an hcloud server, a Robot box.
 #
 #   test/k3s-node-test.sh --host <ip> [--port 22] [--key <file>] [--checks image,1,guard,2,3] [--timeout 900]
 #

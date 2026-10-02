@@ -1,7 +1,7 @@
 > **Release snapshot.** This repository publishes `the Garden Linux build for Hetzner Cloud — recipe and scripts, build it in your own project` as one commit per release of the
-> [PaaSbox](https://paasbox.com) platform (tag `v1.150.2-pb.71` = the platform train it ships in). It is supplied free of
+> [PaaSbox](https://paasbox.com) platform (tag `v1.150.2-pb.73` = the platform train it ships in). It is supplied free of
 > charge, as is, under the [LICENSE](LICENSE); PaaSbox's commercial offer is the operated service, which runs
-> exactly this code. Images: `ghcr.io/paasbox-cloud/gardenlinux-hcloud:v1.150.2-pb.71`, signed. How to contribute and how to report a
+> exactly this code. Images: `ghcr.io/paasbox-cloud/gardenlinux-hcloud:v1.150.2-pb.73`, signed. How to contribute and how to report a
 > vulnerability: [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md). Why it is published this way:
 > https://paasbox.com/docs/built-on-gardener/.
 
@@ -13,10 +13,11 @@ flavors Hetzner users need and upstream does not ship:
 
 - **`hcloud`** — for Hetzner Cloud instances: cloud-init with the Hetzner datasource. There is no
   upstream Garden Linux flavor for hcloud at all.
-- **`robot`** — for Hetzner Robot dedicated servers: a full kernel and no cloud-init, because a
-  dedicated box has no metadata service to read user data from. It is installed through Hetzner's
+- **`robot`** — for Hetzner Robot dedicated servers: a full kernel and no metadata datasource, because
+  a dedicated box has no metadata service to read user data from. It is installed through Hetzner's
   `installimage`, which is why this flavor also publishes a rootfs tarball rather than only a disk
-  image.
+  image. The Gardener flavor carries no cloud-init at all; the k3s flavor carries it for one job, the
+  Cluster API bootstrap that arrives at claim time (`features/k3s/README.md`).
 
 As a worker OS it replaces the drift that comes with tracking a general-purpose distribution — the
 containerd pin, the AppArmor runc kill-denial, netplan MAC drift — and it supports in-place updates,
@@ -37,10 +38,20 @@ instances, would forfeit the rate).
 | `hcloud-gardener_prod-amd64` | BIOS+UEFI (`_legacy`) | no | universal fallback, incl. BIOS-only CX types |
 | `hcloud-gardener_prod_usi-amd64` | EFI-only (USI/UKI) | **yes** (`gardenlinux-update`) | CPX/CCX pools, Layer-1 upgrades |
 | `hcloud-gardener_prod-arm64` / `hcloud-gardener_prod_usi-arm64` | as above | as above | CAX (arm64) pools — built natively on GitHub's arm64 runners |
-| `baremetal-robot-gardener_prod-amd64` | BIOS+UEFI (`metal` includes `_legacy`) | no | Robot dedicated servers — full kernel, no cloud-init (`features/robot/README.md`) |
-| `baremetal-robot-gardener_prod_zfs-amd64` | BIOS+UEFI | no | the same, **plus OpenZFS** for local-PV storage (`features/zfs/README.md`) |
+| `baremetal-robot-gardener_prod-amd64` | **UEFI** as installed (installimage, RAID1); BIOS only without RAID — [below](#robot-uefi-as-installed) | no | Robot dedicated servers — full kernel, no cloud-init (`features/robot/README.md`) |
+| `baremetal-robot-gardener_prod_zfs-amd64` | as above | no | the same, **plus OpenZFS** for local-PV storage (`features/zfs/README.md`) |
 | `hcloud-k3s_prod_usi-amd64` / `hcloud-k3s_prod_usi-arm64` | EFI-only (USI/UKI) | **yes** — the OS update is the k3s update | a **k3s node** instead of a Gardener worker: k3s in the image, state in `/var`, local volumes on LVM `vg0` — `local-lvm-thin` is the only default StorageClass; adding hcloud-csi next to it needs `defaultStorageClass: false` (`features/k3s/README.md`) |
-| `baremetal-robot-k3s_prod-amd64` | BIOS+UEFI | no | a k3s node on a Robot box, installed through installimage into its `vg0` layout |
+| `baremetal-robot-k3s_prod-amd64` | as above | no | a k3s node on a Robot box, installed through installimage into its `vg0` layout; cloud-init with the NoCloud datasource only, run by the node agent at claim time |
+
+<a id="robot-uefi-as-installed"></a>
+**Robot flavors boot UEFI, as they are installed.** The rootfs itself carries both boot paths (`metal`
+includes `_legacy`), and that is where "BIOS+UEFI" in this table came from. It is not what a box gets.
+Through installimage on a RAID1 pair, which is the layout every box of the pool has, Garden Linux
+boots **only under UEFI**: systemd-boot on a mirrored ESP, measured on an AX41 on 2026-09-14. On
+legacy BIOS the same layout cannot be booted without GRUB, which Garden Linux does not ship; BIOS
+works only with `SWRAID 0` (extlinux, no mirror), which the pool does not use. The firmware is
+switched once per box at the KVM console (`features/robot/README.md`, and `docs/dedicated-nodes.md`
+in the monorepo's root).
 
 The `zfs` element is **opt-in and not part of any flavor above**: the module is out-of-tree, so a
 Secure-Boot-enforcing flavor (`_usi`, signed) refuses to load it, and adding it changes an image that
@@ -85,7 +96,7 @@ Snapshots carry **`gardener.cloud/image-name=gardenlinux-<version>`** (e.g.
 
 pool-manager resolves `ManagedServer.spec.imageRef` to the **newest** snapshot of the label whatever
 its architecture or k3s, so a name shared across versions lets an upload change what the next claim
-installs, and one shared across architectures can hand a claim the wrong disk. ownpaas-mgmt refuses a
+installs, and one shared across architectures can hand a claim the wrong disk. The management CLI refuses a
 name shared across k3s versions, one that names no version, and one of the wrong architecture. The
 k3s revision (`+k3sN`) is not in the name: before uploading a second revision of the same patch
 release, delete or relabel the older snapshot in that project. The release's k3s UKI carries the
@@ -244,7 +255,7 @@ HCLOUD_TOKEN=<test project, read-write> hcloud-upload-image upload --image-path 
 | `hcloud-k3s_prod_usi-arm64`, k3s v1.36.3+k3s1 | **436601069** | arm | 0.24 GB | 40 GB | 163 s |
 
 Labels (the k3s scheme above; relabeled 2026-09-27 from the first upload's shared
-`gardener.cloud/image-name=gardenlinux-k3s-usi-2150.6.0` and `gl-k3s=v1.36.3`, which ownpaas-mgmt refuses):
+`gardener.cloud/image-name=gardenlinux-k3s-usi-2150.6.0` and `gl-k3s=v1.36.3`, which the management CLI refuses):
 `gardener.cloud/image-name=gl-k3s-v1.36.3-amd64` and `…-arm64`, `gl-k3s=v1.36.3-k3s1`, `gl-flavor=<cname>`,
 `gl-build=local-20260927`, `test-image=true` (and the uploader's `apricote.de/created-by`). The API shows
 `os_flavor: ubuntu`, inherited from the uploader's temporary server; nothing reads it. **No `caph-image-name`

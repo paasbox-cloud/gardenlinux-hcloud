@@ -6,15 +6,17 @@ platform: flavors **`baremetal-robot-gardener_prod-amd64`** and **`baremetal-rob
 `baremetal-k3s-robot_prod-amd64-…`, and CI publishes its rootfs as
 `Gardenlinux-1300-<version>-amd64-robot-k3s.tar.xz`). Everything below applies to both: the k3s flavor
 installs the same way into the same `vg0` layout, where `k3s-vg0.service` finds installimage's
-volume group and LocalPV-LVM provisions into its free extents. Its post-install writes
-`/etc/rancher/k3s/config.yaml` and runs `k3s-role server` (or `agent`) without `--now`. Deliberately different from
+volume group and LocalPV-LVM provisions into its free extents. Its post-install installs
+`nodepool-agent`, which gives the node its role when it is claimed (`features/k3s/README.md`, "Robot:
+the bootstrap at claim time"); by hand, write `/etc/rancher/k3s/config.yaml` and run `k3s-role server`
+(or `agent`) without `--now`. Deliberately different from
 `hcloud`:
 
 | Concern | hcloud (cloud) | robot (dedicated) |
 |---|---|---|
 | kernel | `linux-image-cloud-$arch` (VM drivers only) | full `linux-image-$arch` via `metal` (Intel igb/e1000e, AHCI, mdadm…) |
-| provisioning | cloud-init + DataSourceHetzner (metadata/user_data) | **none** — Robot has no metadata service; bootstrap = the pull-onboarding agent (`autosetup.go`), test access = rescue-injection |
-| boot | classic `_legacy` dual / usi EFI-only | `metal` includes `_legacy` (BIOS+UEFI dual) — auction boxes are commonly legacy-BIOS |
+| provisioning | cloud-init + DataSourceHetzner (metadata/user_data) | **no metadata** — Robot has no metadata service; bootstrap = the pull-onboarding agent (`autosetup.go`), test access = rescue-injection. The gardener flavor has no cloud-init; the k3s flavor has it with the NoCloud datasource only, disabled at boot and run by the agent over the seed it writes |
+| boot | classic `_legacy` dual / usi EFI-only | **UEFI**, as installed through installimage on RAID1 (systemd-boot on a mirrored ESP, measured 2026-09-14). The rootfs carries both paths (`metal` includes `_legacy`), but on legacy BIOS the RAID1 layout only boots with GRUB, which Garden Linux does not ship: BIOS means `SWRAID 0`. An auction box that arrives in legacy BIOS is switched once at the KVM console ([below](#uefi-is-the-supported-path-measured-2026-09-14)) |
 | deploy | snapshot via hcloud-upload-image / rescue-dd | **installimage with the builder's `.tar` rootfs** (preferred, keeps the LVM layout) or rescue-dd; recovery = Robot API rescue+reset |
 | network | DHCP (hcloud always answers) | DHCP on the primary NIC (Robot answers with the static primary IP — verified 2026-07-07 on an AX-class auction box); vSwitch = 802.1q VLAN sub-interface, **MTU 1400**, static IP — configured by the onboarding agent, not baked |
 | carried over | DNS trim (same Hetzner recursors), inotify sysctls, sshd PermitRootLogin+Include fixes | same |
@@ -97,13 +99,23 @@ So on legacy BIOS with a mirror, a non-GRUB bootloader cannot boot this layout a
 `SWRAID 0` — no mirror, on drives already at 171% of rated endurance — or UEFI, where systemd-boot
 reads an ESP: a plain FAT partition, not an md member, with no chainload in the path.
 
-**Boxes that boot UEFI are a different question, deliberately left open.** This box boots legacy BIOS
-(`/sys/firmware/efi` absent, MSDOS partition table) and its firmware is UEFI-capable, so switching is
-possible — but it needs a KVM console per box (free for three hours, ordered through Robot, one
-physical device a technician attaches), Secure Boot must stay off or the rescue system and
-installimage stop working, and a UEFI install can push PXE down the boot order and take rescue with
-it. The prize is Garden Linux's in-place update, which is EFI-only. Worth doing as an experiment on
-one box; not worth making a condition of adopting a server.
+### UEFI is the supported path (measured 2026-09-14)
+
+The paragraph that stood here called UEFI "a different question, deliberately left open". It was
+answered the next day, on the same AX41, over four reimages: with the firmware switched to UEFI,
+installimage adds the ESP (`PART /boot/efi esp`), the post-install puts systemd-boot on it
+(`nodepool-core`'s `pkg/nodeagent/bootloader.go`: a metadata-1.0 mirror the firmware reads as plain
+FAT, one UEFI boot entry per drive, `kernel-install` pointed at the ESP), and the box boots. So
+the rule for a box of the pool is:
+
+- **UEFI, with RAID1.** Switched once per box at the KVM console (free for three hours, ordered
+  through Robot): `Boot from Onboard LAN` → `Onboard LAN UEFI PXE`, CSM disabled, **Secure Boot off**
+  (or the rescue system and installimage stop working), and PXE kept first in the boot order (a UEFI
+  install can push it down, and rescue goes with it). `docs/dedicated-nodes.md` in the monorepo's
+  root has the same steps.
+- **Legacy BIOS only without a mirror** (`SWRAID 0`, extlinux), for the reason above. The pool does
+  not use it: its drives are far past their rated endurance, and a mirror is what turns a failed
+  drive into an alert.
 
 ### Why this matters more than the packaging detail
 
@@ -169,13 +181,20 @@ dots out of it too, because `IMAGENAME` is cut at the first dot.
 Note what this rules out: the builder's own artifact name,
 `baremetal-robot-gardener_prod-amd64-2150.6.0-<commit>.tar`, yields `IMG_VERSION=robot`.
 
-### What is still unmeasured
+### What is measured, and what is not
 
-Whether installimage's chroot post-install — grub, fstab, `update-initramfs` — completes on a
-Garden Linux rootfs. GL is Debian-derived so the Debian path is the plausible one, and
-`features/robot/pkg.include` now guarantees `lvm2` and `mdadm` are present for the initramfs to
-assemble the array and activate `vg0`. Plausible is not measured; this needs a box.
+Measured on an AX41 (2026-09-13 and 2026-09-14, the **gardener** flavor): installimage's chroot steps
+complete on the Garden Linux rootfs (fstab, the initramfs regenerated with `lvm2` and `mdadm` from
+`pkg.include`), the installed system boots under UEFI from the mirrored ESP, and the node joins.
+This section used to say that none of it had run on a box; the sections above had already said
+otherwise.
 
-No cloud-init in this image at all (metal excludes `cloud`; we add no datasource) — anything
-instance-specific is the onboarding agent's job. vSwitch/VLAN is intentionally NOT baked:
-VLAN id/IP are per-deployment, and the RobotAdapter sets them.
+Not measured: the **k3s** rootfs on hardware (it installs through the same path and has never
+booted on a box), and cloud-init's stages run by the node agent on Garden Linux' own cloud-init
+package (run on Debian 13's 25.1.4 with this flavor's configuration; `features/k3s/README.md`).
+
+cloud-init: the gardener flavor has none (metal excludes `cloud`; no datasource is added). The k3s
+flavor has it for the Cluster API bootstrap alone, with NoCloud as its only datasource and disabled
+at boot (`features/k3s/exec.config`, step 6). Either way nothing instance-specific is baked:
+everything a box learns about itself comes from the onboarding agent. vSwitch/VLAN is intentionally
+NOT baked: VLAN id/IP are per-deployment, and the agent sets them.

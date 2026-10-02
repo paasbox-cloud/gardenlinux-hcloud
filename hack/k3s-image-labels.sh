@@ -16,13 +16,13 @@
 # Why one name per version and architecture: pool-manager resolves ManagedServer.spec.imageRef to the
 # NEWEST snapshot labeled gardener.cloud/image-name=<imageRef>, whatever its architecture or k3s. With a
 # name shared across k3s versions, uploading a newer build silently changes what every later claim
-# installs; with one shared across architectures, a claim can get the other architecture's disk. ownpaas-mgmt
-# (docs/ownpaas-mgmt.md, "The image label caveat") refuses such a name, and a name that says no version.
+# installs; with one shared across architectures, a claim can get the other architecture's disk. The management
+# CLI that enrols pool servers refuses such a name, and a name that says no version.
 # The k3s revision (+k3sN) is not in the name: a second revision of the same patch release shares it, so
 # delete or relabel the older snapshot in that project before uploading the newer one.
 #
 # The public release's k3s UKI carries the same name (<name>.uki, .github/workflows/build.yml), so
-# `ownpaas-mgmt node update -uki <url> -sums <SHA256SUMS url>` names the same thing as the snapshot.
+# a node update by UKI URL, checked against the release's SHA256SUMS, names the same thing as the snapshot.
 set -Eeuo pipefail
 
 dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
