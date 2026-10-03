@@ -27,6 +27,6 @@ Flavors (see root README): `hcloud-gardener_prod-amd64` (classic, BIOS+UEFI via 
 
 | node-adapt.sh | Why dropped on GL |
 |---|---|
-| (1) containerd 1.7 pin + apt hold | GL 2150.6.0 ships containerd **2.2.5** (config v3 — supported by gardener ≥ v1.115, which the stack is well past; past the 2.2.1 `ctr` C9 regression). GL *is* the unpin. |
-| (1b) apparmor runc kill-denial disable | Ubuntu-specific: apparmor≥4's `/etc/apparmor.d/runc` vs containerd <1.7.24 profile. GL: runc 1.4.3, containerd 2.2.5, and no runc apparmor profile expected — **verify none ships [V-GL2]** (gardener feature does enable apparmor: `security=apparmor` cmdline). |
+| (1) containerd 1.7 pin + apt hold | GL 2150.11.0 ships containerd **2.3.5** (config v4 — needs gardener ≥ v1.144; the stack runs v1.150.2). 2150.6.0 shipped 2.2.5 (config v3), past the 2.2.1 `ctr` C9 regression. GL *is* the unpin. |
+| (1b) apparmor runc kill-denial disable | Ubuntu-specific: apparmor≥4's `/etc/apparmor.d/runc` vs containerd <1.7.24 profile. GL: runc 1.4.3, containerd 2.3.5 (2150.11.0), and no runc apparmor profile expected — **verify none ships [V-GL2]** (gardener feature does enable apparmor: `security=apparmor` cmdline). |
 | (2b) netplan MAC self-heal | netplan doesn't exist on GL; with cloud-init network config disabled there is no rendered MAC pin to go stale. Hot-attach behavior under plain networkd still needs live validation **[V-GL2]**. |

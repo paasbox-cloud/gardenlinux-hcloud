@@ -11,6 +11,8 @@
 # WHAT IT VENDORS from github.com/gardenlinux/gardenlinux @ $GL_TAG:
 #   - build            (the build wrapper, verbatim — pins the matching ghcr.io/gardenlinux/builder image)
 #   - keyring.gpg      (validates packages.gardenlinux.io InRelease; NOT the Debian archive keyring)
+#   - requirements.defs (the requirement defaults features/*/requirements.mod override; `build` bind-
+#                       mounts it since 2150.11.0 and podman refuses to start without the file)
 #   - features/<closure>  (see FEATURES below)
 #   - cert/ tooling    (gencert/genefiauth/gengpg + Makefile + *.conf templates + Containerfile + build;
 #                       needed because features/_usi/exec.post bakes cert/oci-sign.crt +
@@ -24,16 +26,18 @@
 #         GL_SRC=/path/to/checkout hack/vendor-upstream.sh   (reuse an existing checkout, must be at $GL_TAG)
 set -euo pipefail
 
-GL_TAG="${GL_TAG:-2150.6.0}"   # GL0: line = 2150.x; keep in sync with ./get_version
+GL_TAG="${GL_TAG:-2150.11.0}"   # GL0: line = 2150.x; keep in sync with ./get_version
 dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# FEATURES = transitive include+exclude closure of {cloud, gardener, _prod, _usi} at 2150.6.0
-# (our `hcloud` platform feature includes `cloud`; flavors add gardener,_prod[,_usi]).
+# FEATURES = transitive include+exclude closure of every flavor's upstream features at 2150.11.0:
+# {cloud, gardener, _prod, _usi} for hcloud (our `hcloud` platform feature includes `cloud`), plus
+# {baremetal, metal} for robot/zfs, whose closure adds openstackCloud (unchanged since 2150.6.0).
 # Recompute when bumping GL_TAG:
 #   python3 - walk features/*/info.yaml from the seed set following features.include+exclude.
 FEATURES=(
   _fwcfg _legacy _nocrypt _nopkg _prod _selinux _slim _unsigned _usi
-  base cloud firewall gardener iscsi log multipath nvme openstackMetal sap server ssh
+  baremetal base cloud firewall gardener iscsi log metal multipath nvme openstackCloud
+  openstackMetal sap server ssh
 )
 
 CERT_TOOLING=(
@@ -57,6 +61,7 @@ echo "vendoring from gardenlinux @ $GL_TAG ($src)"
 
 cp "$src/build" "$dir/build" && chmod +x "$dir/build"
 cp "$src/keyring.gpg" "$dir/keyring.gpg"
+cp "$src/requirements.defs" "$dir/requirements.defs"
 
 mkdir -p "$dir/features"
 for f in "${FEATURES[@]}"; do
@@ -69,5 +74,5 @@ for f in "${CERT_TOOLING[@]}"; do
   cp -a "$src/cert/$f" "$dir/cert/$f"
 done
 
-echo "done. vendored: build, keyring.gpg, ${#FEATURES[@]} features, cert tooling."
+echo "done. vendored: build, keyring.gpg, requirements.defs, ${#FEATURES[@]} features, cert tooling."
 echo "reminder: features/hcloud/, get_*, build.config, .github/ are OURS — never overwritten here."

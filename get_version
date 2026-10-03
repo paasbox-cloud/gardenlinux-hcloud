@@ -4,6 +4,8 @@
 # does not). GL0 locks the 2150.x line; bump here + hack/vendor-upstream.sh GL_TAG +
 # get_timestamp together on every patch release.
 # 2150.6.0: kernel 6.18.37, containerd 2.2.5, runc 1.4.3 (verified against the repo's Packages).
+# 2150.11.0: kernel 6.18.53, containerd 2.3.5 (config v4 — needs gardener >= v1.144; the stack runs
+# v1.150.2), runc 1.4.3, systemd 259.9 — same on amd64 and arm64 (verified 2026-10-03, dists/2150.11.0).
 set -eufo pipefail
 
-echo "2150.6.0"
+echo "2150.11.0"

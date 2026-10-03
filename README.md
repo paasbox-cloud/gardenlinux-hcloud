@@ -1,7 +1,7 @@
 > **Release snapshot.** This repository publishes `the Garden Linux build for Hetzner Cloud — recipe and scripts, build it in your own project` as one commit per release of the
-> [PaaSbox](https://paasbox.com) platform (tag `v1.150.2-pb.73` = the platform train it ships in). It is supplied free of
+> [PaaSbox](https://paasbox.com) platform (tag `v1.150.2-pb.74` = the platform train it ships in). It is supplied free of
 > charge, as is, under the [LICENSE](LICENSE); PaaSbox's commercial offer is the operated service, which runs
-> exactly this code. Images: `ghcr.io/paasbox-cloud/gardenlinux-hcloud:v1.150.2-pb.73`, signed. How to contribute and how to report a
+> exactly this code. Images: `ghcr.io/paasbox-cloud/gardenlinux-hcloud:v1.150.2-pb.74`, signed. How to contribute and how to report a
 > vulnerability: [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md). Why it is published this way:
 > https://paasbox.com/docs/built-on-gardener/.
 
@@ -108,12 +108,13 @@ same name (`gl-k3s-v1.36.4-amd64.uki`, listed in the release's `SHA256SUMS`).
 features/hcloud/          OURS — the Hetzner Cloud platform feature (see its README for decisions)
 features/robot/           OURS — the Robot dedicated element (see its README)
 features/k3s/             OURS — the k3s node element, alternative to gardener (see its README)
-get_repo|version|...      OURS — pins: packages.gardenlinux.io @ 2150.6.0, epoch 1771372800
+get_repo|version|...      OURS — pins: packages.gardenlinux.io @ 2150.11.0, epoch 1771372800
 build.config, .github/,
 test/, hack/              OURS
 build, keyring.gpg,
+requirements.defs,
 features/<everything else>,
-cert/ tooling             VENDORED verbatim from gardenlinux/gardenlinux @ 2150.6.0 (VENDOR.md)
+cert/ tooling             VENDORED verbatim from gardenlinux/gardenlinux @ 2150.11.0 (VENDOR.md)
 ```
 
 Vendoring is required, not a style choice: the builder mounts only this dir's `features/`, and
@@ -128,7 +129,7 @@ Requires rootless podman (Linux). Classic flavor:
 
 ```sh
 ./build hcloud-gardener_prod-amd64
-# → .build/hcloud-gardener_prod-amd64-2150.6.0-<commit8|local>.raw
+# → .build/hcloud-gardener_prod-amd64-2150.11.0-<commit8|local>.raw
 ```
 
 USI flavor (generate self-signed dev certs once first — `_usi/exec.post` bakes
@@ -137,7 +138,7 @@ USI flavor (generate self-signed dev certs once first — `_usi/exec.post` bakes
 ```sh
 ./cert/build oci-sign.crt secureboot.pk.auth secureboot.null.pk.auth secureboot.kek.auth secureboot.db.auth
 ./build hcloud-gardener_prod_usi-amd64
-# → …-2150.6.0-<commit>.raw (EFI-only disk) + ….uki + ….esp.tar
+# → …-2150.11.0-<commit>.raw (EFI-only disk) + ….uki + ….esp.tar
 ```
 
 macOS: no native podman — use an OrbStack Linux machine (`orb create ubuntu gl-builder`,
@@ -151,20 +152,20 @@ rootless podman mounts).
 dd + snapshot; disk zeroed → small snapshot; raw only — qcow2 is capped ~960MB):
 
 ```sh
-xz -T0 -9 .build/hcloud-gardener_prod-amd64-2150.6.0-*.raw
+xz -T0 -9 .build/hcloud-gardener_prod-amd64-2150.11.0-*.raw
 export HCLOUD_TOKEN=<lab project rw token>
 hcloud-upload-image upload \
-  --image-path .build/hcloud-gardener_prod-amd64-2150.6.0-*.raw.xz \
+  --image-path .build/hcloud-gardener_prod-amd64-2150.11.0-*.raw.xz \
   --compression xz \
   --architecture x86 \
   --location nbg1 \
-  --description "Garden Linux 2150.6.0 hcloud-gardener_prod" \
-  --labels gardener.cloud/image-name=gardenlinux-2150.6.0
+  --description "Garden Linux 2150.11.0 hcloud-gardener_prod" \
+  --labels gardener.cloud/image-name=gardenlinux-2150.11.0
 ```
 
-Same for the USI raw. NOTE: while both variants are labeled `gardenlinux-2150.6.0` the label
+Same for the USI raw. NOTE: while both variants are labeled `gardenlinux-2150.11.0` the label
 resolver takes newest-by-Created — during GL1/GL2 keep only ONE variant per project, or suffix
-the trial label (e.g. `…=gardenlinux-usi-2150.6.0`) and reconcile before GL4.
+the trial label (e.g. `…=gardenlinux-usi-2150.11.0`) and reconcile before GL4.
 
 ## Building the k3s snapshots locally (amd64 and arm64, 2026-09-27)
 

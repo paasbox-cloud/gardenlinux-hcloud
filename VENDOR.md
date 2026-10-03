@@ -5,14 +5,16 @@ This directory (`components/gardenlinux`) is a **vendored downstream** of [garde
 
 - `build` — the build wrapper (pins the matching `ghcr.io/gardenlinux/builder` container image by commit, so the builder floats with `GL_TAG`; the [gardenlinux/builder](https://github.com/gardenlinux/builder) repo itself only seeded this repo's layout once, from `builder_example`, and is not vendored ongoing)
 - `keyring.gpg` — validates `packages.gardenlinux.io` InRelease
+- `requirements.defs` — the requirement defaults that `features/*/requirements.mod` override; the
+  `build` wrapper bind-mounts it since 2150.11.0, and podman will not start the builder without it
 - `features/<closure>` — everything under `features/` **except** `features/hcloud/`,
-  `features/robot/` and `features/k3s/` (ours). The script's `FEATURES` array lists the 21-feature closure of
-  `{cloud, gardener, _prod, _usi}`; `baremetal`, `metal`, `openstackCloud` (the robot/baremetal
-  closure) were vendored in the initial 2150.6.0 sync but are **not yet in that array** — add
-  them to `FEATURES` before the next re-vendor or they go stale.
+  `features/robot/`, `features/k3s/` and `features/zfs/` (ours). The script's `FEATURES` array lists the
+  24-feature closure of every flavor: `{cloud, gardener, _prod, _usi}` for hcloud plus `{baremetal, metal}`
+  for robot, which adds `openstackCloud` (`baremetal`, `metal` and `openstackCloud` joined the array in the
+  2150.11.0 sync; until then they were left at the initial 2150.6.0 copy)
 - `cert/` tooling — gencert/genefiauth/gengpg + configs (generated keys are gitignored)
 
-Ours, never overwritten by the script: `features/hcloud/`, `features/robot/`, `features/k3s/`, `get_repo|get_version|get_commit|get_timestamp`, `build.config`, `.github/`, `test/`, `hack/`.
+Ours, never overwritten by the script: `features/hcloud/`, `features/robot/`, `features/k3s/`, `features/zfs/`, `get_repo|get_version|get_commit|get_timestamp`, `build.config`, `.github/`, `test/`, `hack/`.
 
 ## The iron rule
 
@@ -55,4 +57,4 @@ e.g. `2150.6.0`); legacy 2-segment (`1877.20`) and `beta_*` tags are excluded by
 semver versioning.
 
 <!-- renovate: datasource=github-tags depName=gardenlinux/gardenlinux -->
-vendored-upstream: 2150.6.0
+vendored-upstream: 2150.11.0
